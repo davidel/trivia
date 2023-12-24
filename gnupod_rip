@@ -1,0 +1,177 @@
+#!/usr/bin/perl -w
+#    Copyright 2023 Davide Libenzi
+# 
+#    Licensed under the Apache License, Version 2.0 (the "License");
+#    you may not use this file except in compliance with the License.
+#    You may obtain a copy of the License at
+# 
+#        http://www.apache.org/licenses/LICENSE-2.0
+# 
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#    See the License for the specific language governing permissions and
+#    limitations under the License.
+# 
+
+use strict;
+
+
+my $mntp = $ENV{IPOD_MOUNTPOINT};
+my $outd = ".";
+my @execa = ("gnupod_search", "--view=italu");
+
+
+for (my $i = 0; $i <= $#ARGV; $i++) {
+    if ($ARGV[$i] eq "-m") {
+	if (++$i <= $#ARGV) {
+	    $mntp = $ARGV[$i];
+	}
+    } elsif ($ARGV[$i] eq "-o") {
+	if (++$i <= $#ARGV) {
+	    $outd = $ARGV[$i];
+	}
+    } elsif ($ARGV[$i] eq "-l") {
+	if (++$i <= $#ARGV) {
+	    push(@execa, "-l", "'" . $ARGV[$i] . "'");
+	}
+    } elsif ($ARGV[$i] eq "-i") {
+	if (++$i <= $#ARGV) {
+	    push(@execa, "-i", $ARGV[$i]);
+	}
+    } elsif ($ARGV[$i] eq "-g") {
+	if (++$i <= $#ARGV) {
+	    push(@execa, "-g", "'" . $ARGV[$i] . "'");
+	}
+    } elsif ($ARGV[$i] eq "-a") {
+	if (++$i <= $#ARGV) {
+	    push(@execa, "-a", "'" . $ARGV[$i] . "'");
+	}
+    } elsif ($ARGV[$i] eq "-t") {
+	if (++$i <= $#ARGV) {
+	    push(@execa, "-t", "'" . $ARGV[$i] . "'");
+	}
+    } elsif ($ARGV[$i] eq "-h") {
+	usage($0);
+    }
+}
+if (!defined($mntp)) {
+    $mntp = "/mnt/ipod";
+}
+if (! -d $mntp) {
+    print STDERR "${mntp} does not exit\n";
+    exit(1);
+}
+if ((! -d $outd) && !mkdir($outd)) {
+    print STDERR "unable to create directory: ${outd}\n";
+    exit(2);
+}
+
+push(@execa, "-m", $mntp);
+
+my $sres = qx(@execa);
+
+if ($? != 0) {
+    print STDERR "error executing: " . join(" ", @execa) . "\n\n";
+    print STDERR "$0 requires the gnupod package http://www.gnu.org/software/gnupod/\n";
+    print STDERR "is it installed in your system?\n";
+    exit(1);
+}
+
+my @ares = split("\n", $sres);
+
+foreach my $ln (@ares) {
+
+    if ($ln !~ /^[0-9]+[ \t]*\|/) {
+	next;
+    }
+
+    my @argz = split("\\|", $ln);
+
+    for (my $i = 0; $i <= $#argz; $i++) {
+	$argz[$i] =~ s/\&/aNd/g;
+	$argz[$i] =~ tr/\'\"\`\-/   _/;
+	if ($i != 4) {
+	    $argz[$i] =~ tr/\// /;
+	}
+	$argz[$i] =~ s/^[^a-zA-Z0-9\/\._\(\)\[\]]*(.+?)[ \t]*$/$1/;
+    }
+
+    my $adir = "${outd}/" . $argz[3];
+
+    if ((! -d $adir) && !mkdir($adir)) {
+	print STDERR "unable to create directory: ${adir}\n";
+	exit(2);
+    }
+
+    my $ext = $argz[4];
+
+    $ext =~ s/.*\/[^\/]+\.([a-zA-Z0-9]+)$/$1/;
+
+    my $afile = $adir . "/" . $argz[1] . "-" . $argz[2] . ".${ext}";
+
+    print "Album = '" . $argz[3] . "'\tAuthor = '" . $argz[2] . "'\tTitle = '" . $argz[1] . "'\n";
+    if (!file_cp($argz[4], $afile)) {
+	exit(2);
+    }
+}
+
+exit(0);
+
+
+
+sub usage {
+    my ($prg) = @_;
+
+    print STDERR "${prg} by Davide Libenzi <davidel\@xmailserver.org>\n\n";
+    print STDERR "Usage: ${prg} [-m IPODIR] [-o OUTDIR] [-i ID] [-t TITLE] [-a AUTHOR] [-g GENRE] [-l ALBUM] [-h]\n\n";
+    print STDERR "\t-m IPODIR     = Sets the iPod mount directory\n";
+    print STDERR "\t-o OUTDIR     = Sets the output directory (will be created if missing)\n";
+    print STDERR "\t-i ID         = Selects songs to rip by GnuPod ID\n";
+    print STDERR "\t-t TITLE      = Selects songs to rip by title\n";
+    print STDERR "\t-a AUTHOR     = Selects songs to rip by author\n";
+    print STDERR "\t-g GENRE      = Selects songs to rip by genre\n";
+    print STDERR "\t-l ALBUM      = Selects songs to rip by album\n";
+    print STDERR "\t-h            = Prints this help screen\n";
+    exit(1);
+}
+
+sub file_cp {
+    my ($fsrc, $fdst) = @_;
+
+    if (!open(SFIL, "${fsrc}")) {
+	print STDERR "unable to open ${fsrc}\n";
+	return 0;
+    }
+    if (!open(DFIL, ">${fdst}")) {
+	print STDERR "unable to create ${fdst}\n";
+	close SFIL;
+	return 0;
+    }
+    binmode SFIL;
+    binmode DFIL;
+    for (;;) {
+	my $data;
+	my $size = read(SFIL, $data, 10000);
+
+	if (!defined($size)) {
+	    print STDERR "unable to read file: ${fsrc}\n";
+	    close SFIL;
+	    close DFIL;
+	    return 0;
+	}
+	if (!$size) {
+	    last;
+	}
+	if (!print DFIL $data) {
+	    print STDERR "unable to write file: ${fdst}\n";
+	    close SFIL;
+	    close DFIL;
+	    return 0;
+	}
+    }
+    close SFIL;
+    close DFIL;
+    return 1;
+}
+
